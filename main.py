@@ -1,10 +1,13 @@
 from fastapi import FastAPI,HTTPException
 from database import SessionLocal, Prediction
 from worker import run_prediction
+from prometheus_fastapi_instrumentator import Instrumentator
 import redis
 import json
 
 app = FastAPI()
+
+Instrumentator().instrument(app).expose(app)
 
 # Connect to redis
 cache = redis.Redis(host='redis', port = 6379, db=0)

@@ -6,3 +6,4 @@ celery
 transformers
 torch
 httpx
+prometheus-fastapi-instrumentator

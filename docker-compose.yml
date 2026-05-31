@@ -13,14 +13,18 @@ services:
       - "8000:8000"
     depends_on:
       - redis
+      - kafka
     environment:
       - REDIS_HOST=redis
+      - KAFKA_HOST=kafka
 
   worker:
     build: .
     command: celery -A worker worker --loglevel=info --pool=solo
     depends_on:
       - redis
+    environment:
+      - REDIS_HOST=redis
 
   prometheus:
     image: prom/prometheus
@@ -32,6 +36,32 @@ services:
   grafana:
     image: grafana/grafana
     ports:
-    - "3001:3000"
+      - "3001:3000"
     depends_on:
-    - prometheus
+      - prometheus
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  
+  kafka_consumer:
+    build: .
+    command: python kafka_consumer.py
+    depends_on:
+      - kafka
+      - redis
+    environment:
+      - REDIS_HOST=redis

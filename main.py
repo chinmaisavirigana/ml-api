@@ -1,16 +1,29 @@
 from fastapi import FastAPI,HTTPException
 from database import SessionLocal, Prediction
-from worker import run_prediction
 from prometheus_fastapi_instrumentator import Instrumentator
 import redis
+from kafka_producer import send_prediction_request
+
 import json
+import os
 
 app = FastAPI()
 
 Instrumentator().instrument(app).expose(app)
 
 # Connect to redis
-cache = redis.Redis(host='redis', port = 6379, db=0)
+import os
+
+# Cache for predictions (db=0)
+cache = redis.Redis(
+    host=os.getenv("REDIS_HOST", "localhost"),
+    port=6379,
+    db=0
+)
+
+# Result store — kafka_consumer writes here, /result reads from here (db=2)
+result_cache = redis.Redis(host=os.getenv('REDIS_HOST', 'localhost'), port=6379, db=2)
+
 
 @app.get("/")
 def home():
@@ -31,18 +44,32 @@ def predict(text: str):
         result['source'] = 'cache'
         return result
 
-    # Don't run model here anymore
-    # Instead - Put the job in the queue and return immediately
-    job = run_prediction.delay(text)
+    job_id = send_prediction_request(text)
 
     return {
-        'job_id' : job.id,
+        'job_id' : job_id,
         'status' : 'processing',
         'message': 'Your prediction is being processed, Check /result/{job_id}'
     }
 
 @app.get('/result/{job_id}')
 def get_result(job_id:str):
+    # db = SessionLocal()
+    # record = db.query(Prediction).filter(Prediction.id==job_id).first()
+    # db.close()
+
+    cached = result_cache.get(job_id)
+    
+    if cached is None:
+        return {'job_id': job_id, 'status':'processing'}
+    
+    result = json.loads(cached)
+    return {
+        'job_id' : job_id,
+        "status" : 'complete',
+        "result" : result
+    }
+    '''
     # To look up the result     
     job = run_prediction.AsyncResult(job_id)
 
@@ -68,7 +95,7 @@ def get_result(job_id:str):
         db.commit()
         db.close()
         return {'job_id':job_id, 'status':'complete','result':result}
-
+        '''
 
     # # Step 2 - cache miss, run the model
     # positive_words = ["good", "great", "love", "amazing", "excellent"]
@@ -129,3 +156,11 @@ def get_one(id:int):
     if record is None:
         raise HTTPException(status_code=404, detail='Prediction not found')
     return record
+
+'''
+/predict    → Kafka queue → async ML inference → instant response
+/result     → Redis lookup → complete result when ready
+/history    → SQLite → all past predictions
+/health     → status check
+/metrics    → Prometheus scraping
+'''

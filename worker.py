@@ -1,12 +1,19 @@
 from celery import Celery
 import time
 from transformers import pipeline
+import os
 
 # Connect celery to Redis (Redis stores the jobs)
 
-celery_app = Celery("worker",broker = 'redis://redis:6379/0', # where jobs come in 
-                    backend = 'redis://redis:6379/1'  # where results go 
-                )
+redis_host = os.getenv("REDIS_HOST", "localhost")
+
+celery_app = Celery(
+    "worker",
+    broker=f"redis://{redis_host}:6379/0",
+    backend=f"redis://{redis_host}:6379/1"
+)
+
+
 
 # Load model once when worker starts
 # NOT inside the function — loading takes 2 seconds

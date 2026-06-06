@@ -2,3 +2,7 @@ predictions.db
 __pycache__/
 *.pyc
 .env
+mlruns/
+model_output/
+*.bin
+*.pt

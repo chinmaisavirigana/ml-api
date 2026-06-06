@@ -42,7 +42,7 @@ from sklearn.metrics import accuracy_score, f1_score
 
 print("Stage 1: Loading data...")
 
-dataset = load_dataset("imdb")
+dataset = load_dataset("stanfordnlp/imdb")
 
 train_data = dataset["train"].shuffle(seed=42).select(range(1000))
 eval_data  = dataset["test"].shuffle(seed=42).select(range(200))

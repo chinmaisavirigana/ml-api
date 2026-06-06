@@ -29,23 +29,7 @@ jobs:
         run: |
           python training_pipeline.py
 
-      - name: Check model registration
+      - name: Report result
         run: |
-          python -c "
-          import mlflow
-          mlflow.set_tracking_uri('sqlite:///mlflow.db')
-          client = mlflow.tracking.MlflowClient()
-          versions = client.get_latest_versions('sentiment-classifier')
-          if versions:
-              print(f'Model registered: version {versions[0].version}')
-          else:
-              print('No model registered — accuracy below threshold')
-          "
-
-      - name: Commit updated MLflow DB
-        run: |
-          git config user.email "ci@github.com"
-          git config user.name "GitHub Actions"
-          git add mlflow.db
-          git diff --staged --quiet || git commit -m "Update MLflow DB after training run"
-          git push
+          echo "Training pipeline completed"
+          echo "Check mlruns/ for experiment details"

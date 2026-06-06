@@ -107,7 +107,7 @@ Every run logged automatically:
 print("Stage 4: Training...")
 
 # "put all my runs in a folder called sentiment-training"
-mlflow.set_tracking_uri("sqlite:///mlflow.db")
+
 mlflow.set_experiment("sentiment-training")
 
 with mlflow.start_run():

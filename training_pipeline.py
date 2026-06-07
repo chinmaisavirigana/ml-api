@@ -1,3 +1,4 @@
+
 '''
 Stage 1 — Data ingestion
 You'll load the IMDb movie review dataset from HuggingFace.
@@ -32,6 +33,7 @@ Stage 6 — Model registration
 Save to MLflow model registry with full metadata — dataset used, hyperparameters, metrics.
 '''
 
+'''
 from datasets import load_dataset
 from transformers import AutoTokenizer
 import mlflow
@@ -89,7 +91,7 @@ eval_data.set_format("torch", columns=["input_ids", "attention_mask", "label"])
 
 print(f"  Sample input_ids: {train_data[0]['input_ids'][:10]}...")
 print("  Tokenisation complete.")
-
+'''
 '''
 Before writing — why MLflow?
 Without MLflow:
@@ -104,6 +106,7 @@ Every run logged automatically:
   
 6 months later: "what gave us 89%?" → open MLflow → see exact settings'''
 
+'''
 print("Stage 4: Training...")
 
 # "put all my runs in a folder called sentiment-training"
@@ -146,7 +149,8 @@ with mlflow.start_run():
 
     def compute_metrics(eval_pred):
         logits, labels = eval_pred
-        '''logits and argmax
+   
+    logits and argmax
     sAfter the model processes your text it returns logits — raw scores for each category:
     Input: "I love this movie"
     Output (logits): [−2.3,  4.1]
@@ -161,7 +165,7 @@ with mlflow.start_run():
     pythonnp.argmax([−2.3, 4.1])  → 1
     np.argmax([3.1, −0.5])  → 0
     axis=-1 means "find the max along the last dimension" — across the scores for each example.
-    '''
+
 
 
         predictions = np.argmax(logits, axis=-1)
@@ -183,7 +187,7 @@ with mlflow.start_run():
         report_to="none"              # don't send to wandb/tensorboard
 )
 
-    '''
+ 
     Trainer
     HuggingFace's Trainer handles the entire training loop for you:
     Without Trainer (manual):
@@ -199,7 +203,7 @@ with mlflow.start_run():
     trainer.train()
     # that's it — Trainer does everything above
     You give it: model + settings + data + metrics function. It handles everything else.
-    '''
+
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -254,7 +258,7 @@ with mlflow.start_run():
 print("  Model registered in MLflow.")
 print("  Pipeline complete.")
 
-'''
+
 Stage 1 → Loaded 1,000 IMDb reviews ✅
 Stage 2 → Validated data (clean, balanced) ✅
 Stage 3 → Tokenised text to numbers ✅
@@ -262,3 +266,153 @@ Stage 4 → Fine-tuned DistilBERT, logged to MLflow ✅
 Stage 5 → Evaluated: 81% accuracy, passed threshold ✅
 Stage 6 → Registered as 'sentiment-classifier' v1 ✅
 '''
+from datasets import Dataset
+from sklearn.datasets import fetch_20newsgroups
+from transformers import AutoTokenizer
+import mlflow
+import mlflow.pytorch
+import numpy as np
+from transformers import AutoModelForSequenceClassification, TrainingArguments, Trainer
+from sklearn.metrics import accuracy_score, f1_score
+
+# ── STAGE 1: DATA INGESTION ───────────────────────────────
+print("Stage 1: Loading data...")
+
+newsgroups = fetch_20newsgroups(
+    subset='train',
+    categories=['rec.sport.hockey', 'sci.space'],
+    remove=('headers', 'footers', 'quotes')
+)
+
+data = Dataset.from_dict({
+    'text': newsgroups.data[:1000],
+    'label': newsgroups.target[:1000]
+})
+
+train_data = data.select(range(800))
+eval_data  = data.select(range(800, 1000))
+
+print(f"  Train examples: {len(train_data)}")
+print(f"  Eval examples:  {len(eval_data)}")
+
+# ── STAGE 2: DATA VALIDATION ──────────────────────────────
+print("Stage 2: Validating data...")
+
+empty = sum(1 for x in train_data if len(x["text"].strip()) == 0)
+if empty > 0:
+    raise ValueError(f"Found {empty} empty texts — fix data before training")
+
+labels = train_data["label"]
+positive_ratio = sum(labels) / len(labels)
+if not (0.3 <= positive_ratio <= 0.7):
+    raise ValueError(f"Labels imbalanced: {positive_ratio:.2%} positive")
+
+print(f"  Empty texts: {empty}")
+print(f"  Positive ratio: {positive_ratio:.2%}")
+print("  Data looks good.")
+
+# ── STAGE 3: TOKENISATION ─────────────────────────────────
+print("Stage 3: Tokenising...")
+
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+
+def tokenize(batch):
+    return tokenizer(
+        batch["text"],
+        truncation=True,
+        padding="max_length",
+        max_length=128
+    )
+
+train_data = train_data.map(tokenize, batched=True)
+eval_data  = eval_data.map(tokenize, batched=True)
+
+train_data.set_format("torch", columns=["input_ids", "attention_mask", "label"])
+eval_data.set_format("torch", columns=["input_ids", "attention_mask", "label"])
+
+print("  Tokenisation complete.")
+
+# ── STAGE 4: TRAINING ─────────────────────────────────────
+print("Stage 4: Training...")
+
+mlflow.set_experiment("sentiment-training")
+
+with mlflow.start_run():
+
+    mlflow.log_params({
+        "model": "distilbert-base-uncased",
+        "train_samples": len(train_data),
+        "eval_samples": len(eval_data),
+        "epochs": 1,
+        "batch_size": 16,
+        "max_length": 128
+    })
+
+    model = AutoModelForSequenceClassification.from_pretrained(
+        "distilbert-base-uncased",
+        num_labels=2
+    )
+
+    def compute_metrics(eval_pred):
+        logits, labels = eval_pred
+        predictions = np.argmax(logits, axis=-1)
+        acc = accuracy_score(labels, predictions)
+        f1  = f1_score(labels, predictions, average="weighted")
+        mlflow.log_metrics({"accuracy": acc, "f1": f1})
+        return {"accuracy": acc, "f1": f1}
+
+    training_args = TrainingArguments(
+        output_dir="./model_output",
+        num_train_epochs=1,
+        per_device_train_batch_size=16,
+        per_device_eval_batch_size=16,
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        load_best_model_at_end=True,
+        logging_steps=50,
+        report_to="none"
+    )
+
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_data,
+        eval_dataset=eval_data,
+        compute_metrics=compute_metrics
+    )
+
+    trainer.train()
+    print("  Training complete.")
+
+    # ── STAGE 5: EVALUATION ───────────────────────────────
+    print("Stage 5: Evaluating...")
+
+    results = trainer.evaluate()
+    accuracy = results["eval_accuracy"]
+    print(f"  Accuracy: {accuracy:.4f}")
+
+    ACCURACY_THRESHOLD = 0.80
+
+    if accuracy < ACCURACY_THRESHOLD:
+        print(f"  Model REJECTED: {accuracy:.4f} < threshold {ACCURACY_THRESHOLD}")
+        print("  Current production model unchanged.")
+    else:
+        print(f"  Model PASSED: {accuracy:.4f} >= threshold {ACCURACY_THRESHOLD}")
+
+        # ── STAGE 6: MODEL REGISTRATION ───────────────────
+        print("Stage 6: Registering model...")
+
+        mlflow.log_metrics({
+            "accuracy": accuracy,
+            "f1": results["eval_f1"]
+        })
+
+        mlflow.pytorch.log_model(
+            trainer.model,
+            artifact_path="sentiment-model",
+            registered_model_name="sentiment-classifier"
+        )
+
+        print("  Model registered in MLflow.")
+
+print("  Pipeline complete.")

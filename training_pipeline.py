@@ -294,8 +294,12 @@ data = Dataset.from_dict({
 })
 
 
-train_data = data.select(range(800))
-eval_data  = data.select(range(800, 1000))
+# After filtering
+total = len(data)
+split = int(total * 0.8)
+
+train_data = data.select(range(split))
+eval_data  = data.select(range(split, total))
 
 print(f"  Train examples: {len(train_data)}")
 print(f"  Eval examples:  {len(eval_data)}")

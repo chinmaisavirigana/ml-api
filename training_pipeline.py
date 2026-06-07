@@ -284,10 +284,15 @@ newsgroups = fetch_20newsgroups(
     remove=('headers', 'footers', 'quotes')
 )
 
+# Stage 1 — filter empty texts before creating dataset
+texts = [t for t in newsgroups.data[:1000] if len(t.strip()) > 0]
+labels = newsgroups.target[:len(texts)]
+
 data = Dataset.from_dict({
-    'text': newsgroups.data[:1000],
-    'label': newsgroups.target[:1000]
+    'text': texts,
+    'label': labels.tolist()
 })
+
 
 train_data = data.select(range(800))
 eval_data  = data.select(range(800, 1000))
